@@ -1,0 +1,28 @@
+# PlatformIO / ESP-IDF
+.pio/
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+
+# Secrets and local config
+.env
+.env.*
+secrets/
+nvs_secrets.*
+!nvs_secrets.example.*
+
+# Freenove vendor bundle (CC BY-NC-SA — do not commit)
+vendor/freenove/
+*.zip
+
+# Python tooling
+.venv/
+__pycache__/
+*.py[cod]
+
+# IDE / OS
+.idea/
+.vscode/browse.*
+.DS_Store
+Thumbs.db
