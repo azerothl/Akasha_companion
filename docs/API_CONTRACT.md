@@ -1,125 +1,251 @@
 # Contrat API — Companion ↔ Daemon Akasha
 
 Base URL MVP : `http://<daemon-host>:3876`  
-Auth MVP : header `Authorization: Bearer <token>` si le daemon l’exige (même politique que l’UI locale) ; sinon LAN trusted + token device en NVS dès Phase 4.
+Le daemon doit écouter sur le LAN : **`AKASHA_BIND=0.0.0.0`** (défaut = `127.0.0.1` uniquement → HTTP `-1` depuis l’ESP32).  
+Auth : Bearer token si exigé ; sinon LAN. Phase 4 : token device via `POST /api/companion/pair` (NVS Companion).
 
-Le companion **ne** parle **qu’**aux routes listées ici (allowlist). Toute nouvelle route → mise à jour de ce fichier + exigence `CMP-*`.
+Allowlist stricte. Toute nouvelle route → ce fichier + `CMP-*`.
 
 ---
 
-## Phase 1–2 (existant daemon)
+## Voice-first (existant daemon — Phase 1–2)
+
+Le companion s’appuie sur les routes voice déjà présentes dans Akasha (`voice_router.yaml`).
+
+### `GET /api/voice/status`
+
+Indique si STT/TTS sont configurés.
+
+**Usage :** gate du mode vocal ; avatar `error` / toast si absent ; LED ambre.
+
+### `POST /api/voice/stt`
+
+Body (selon daemon) :
+
+```json
+{ "data_url": "data:audio/wav;base64,..." }
+```
+
+ou `{ "audio_base64": "..." }`.
+
+**Réponse :** texte transcrit.
+
+**Usage :** après capture MEMS mic (clip court). Afficher brièvement le transcript en overlay avatar (optionnel).
+
+### `POST /api/voice/tts`
+
+```json
+{ "text": "..." }
+```
+
+**Réponse :** `{ "data_url": "data:audio/wav;base64,..." }` (ou équivalent).
+
+**Usage :** lire la réponse assistant sur le speaker. L’avatar `speaking` est piloté par l’**enveloppe RMS du PCM en lecture** sur l’ESP32 — le TTS n’est **pas** embarqué (voir décision d’archi dans `COMPANION_SPEC.md`).
+
+### Boucle conversation
+
+1. `POST /api/voice/stt` → `user_text`
+2. `POST /api/message` avec `user_text` + `session_id: "companion-<device_id>"`
+3. Poll `GET /api/tasks/:id` jusqu’à done
+4. Extraire texte réponse (borné) → `POST /api/voice/tts` → playback
+
+**Optimisation future (Phase 5+)** : `POST /api/companion/utterance` (audio in → audio out + state) pour réduire les round-trips — hors Phase 4.
+
+---
+
+## Core message (existant)
 
 ### `GET /api/status`
 
-Santé / état runtime.
-
-**Usage companion :** écran Home + LED RGB (vert = ok, rouge = unreachable).
-
-### `GET /` (optionnel)
-
-Health check minimal si `/api/status` indisponible.
+Santé daemon — overlay avatar + LED.
 
 ### `POST /api/message`
 
 ```json
 {
   "message": "string",
-  "session_id": "companion-<device_id>" 
+  "session_id": "companion-<device_id>"
 }
 ```
 
-**Réponse :** `{ "task_id": "..." }` (champs selon daemon).
-
-**Usage :** écran Chat ; `session_id` stable par device pour continuité courte.
+Utilisé après STT **et** depuis la surface Texte.
 
 ### `GET /api/tasks/:id`
 
-Poll statut / résultat jusqu’à `done` / `failed` / timeout UI (ex. 120 s).
-
-**Usage :** afficher `result` / dernier message assistant tronqué (ex. 800 caractères).
-
-### Actions rapides (Phase 2)
-
-Mapper les boutons sur des messages ou endpoints déjà stables, par ex. :
-
-| Bouton UI | Appel suggéré |
-|-----------|----------------|
-| Morning brief | Message NL ou route Life layer si exposée (`/api/channels/notify` / schedules — à figer en Phase 2) |
-| Résumé | `POST /api/message` avec prompt court allowlisté |
-| Stop | endpoint cancel tâche si disponible, sinon message « stop » documenté |
-
-Les libellés exacts seront figés quand le firmware Actions sera implémenté (éviter les tools dangereux).
+Poll résultat / erreur.
 
 ---
 
-## Phase 4 (à ajouter dans monorepo Akasha)
+## Surfaces Texte / Image
 
-### `GET /api/companion/snapshot` (proposé)
+| Besoin | API |
+|--------|-----|
+| Chat texte | `POST /api/message` + poll |
+| Actions rapides | chips allowlist Companion (pas de nouvelle route) : `Brief` → « Fais un brief court… », `Stop` → cancel TTS + `POST /api/tasks/:id/cancel`, `Répète`/`Lire` → re-TTS dernier assistant |
+| Image | Pas d’upload ; le companion parse le texte de tâche pour une URL `http(s)://…jpg|jpeg` ou `data:image/jpeg;base64,…` puis GET + decode local |
 
-Une réponse JSON condensée pour peindre Home en **un** round-trip.
+### Chips (Phase 3)
+
+Messages / actions figés côté ESP (même `session_id` `companion-<mac>`) — voir firmware `app_shell` / `conversation`.
+
+---
+
+## Phase 4 — Snapshot, pairing, events
+
+### `GET /api/companion/snapshot` (CMP-013)
+
+JSON condensé (&lt; ~4 KiB) pour overlay + notify. Poll Companion ~7 s (pas de SSE sur ESP).
 
 ```json
 {
   "schema_version": 1,
-  "daemon": {
-    "ok": true,
-    "version": "x.y.z",
-    "uptime_s": 0
-  },
-  "llm": {
-    "provider": "string",
-    "model": "string"
-  },
-  "tasks": {
-    "active": 0,
-    "last_task_id": null
-  },
-  "notify": {
-    "unread": 0,
-    "headline": null
-  },
-  "brief": {
-    "text": null,
-    "updated_at": null
+  "daemon": { "ok": true, "version": "x.y.z" },
+  "llm": { "provider": "string", "model": "string" },
+  "voice": { "stt": true, "tts": true },
+  "tasks": { "active": 0 },
+  "notify": { "unread": 0, "headline": null },
+  "avatar_hint": "idle",
+  "presence_mode": "ptt",
+  "vad_enabled": false,
+  "last_event_ts": null,
+  "presence": { "enabled": false, "threshold_rms": 0.035, "min_speech_ms": 400, "max_speech_ms": 10000, "silence_hang_ms": 700, "cooldown_ms": 2500, "quiet_hours": "", "quiet_now": false }
+}
+```
+
+`avatar_hint` : suggestion (`notify`, `idle`) — l’ESP anime localement.
+
+Implémentation daemon : `crates/akasha-daemon/src/api_routes_companion.rs`.
+
+### `POST /api/companion/pair` (CMP-014)
+
+```json
+{ "device_id": "aabbccddeeff", "name": "FNK0104B", "secret": "..." }
+```
+
+- Si `AKASHA_COMPANION_PAIR_SECRET` est défini côté daemon → `secret` obligatoire et égal.
+- Réponse : `{ "token": "cmp_…", "device_id": "…" }` — stocké NVS Companion (`Authorization: Bearer`).
+- Persistance daemon : `data_dir/companion_devices.json`.
+
+### `POST /api/companion/utterance` (hors Phase 4)
+
+Reporté — STT/TTS/message restent la boucle vocale.
+
+### Events (CMP-012)
+
+- **Companion** : poll enrichi via snapshot (ci-dessus).
+- **Clients riches (UI desktop)** : `GET /api/events` SSE existant — hors chemin ESP.
+
+### Sleep backlight (CMP-011)
+
+Timeout idle 60 s → `PIN_TFT_BL` LOW ; wake touch / BOOT. Pas de deep-sleep ESP.  
+Phase 5 : entrée VAD **suspendue** quand backlight off ; reprise au wake. Début de parole VAD peut rappeler l’activité (wake soft).
+
+---
+
+## Phase 5 — Presence / Hands-free VAD (CMP-015)
+
+Policy runtime : `data_dir/companion_presence.json` (+ override env `AKASHA_COMPANION_VAD_ENABLED`).  
+Dernier événement : champ `last_presence_event` dans `data_dir/companion_devices.json`.
+
+### `GET /api/companion/presence/config`
+
+```json
+{
+  "enabled": false,
+  "threshold_rms": 0.035,
+  "min_speech_ms": 400,
+  "max_speech_ms": 10000,
+  "silence_hang_ms": 700,
+  "cooldown_ms": 2500,
+  "quiet_hours": "",
+  "quiet_now": false,
+  "effective_enabled": false
+}
+```
+
+`quiet_hours` : `"HH:MM-HH:MM"` (heure locale daemon) ; vide = toujours.  
+`effective_enabled` = `enabled && !quiet_now`.
+
+### `POST /api/companion/presence/config`
+
+Body partiel accepté (`enabled`, seuils, `quiet_hours`). Persiste le fichier policy.
+
+### `POST /api/companion/presence/event`
+
+```json
+{ "event": "vad_start|vad_end|speech_dropped|speech_sent|hands_free_on|hands_free_off|error",
+  "device_id": "aabbccddeeff",
+  "detail": "optional ascii" }
+```
+
+Pas de payload audio. Compteurs / métriques textuelles seulement.
+
+### Snapshot étendu (Phase 5)
+
+Champs additionnels sur `GET /api/companion/snapshot` :
+
+```json
+{
+  "presence_mode": "ptt|hands_free",
+  "vad_enabled": false,
+  "last_event_ts": null,
+  "presence": {
+    "enabled": false,
+    "threshold_rms": 0.035,
+    "min_speech_ms": 400,
+    "max_speech_ms": 10000,
+    "silence_hang_ms": 700,
+    "cooldown_ms": 2500,
+    "quiet_hours": "",
+    "quiet_now": false
   }
 }
 ```
 
-**Règles :**
+`vad_enabled` = policy enabled ∧ hors quiet hours ∧ STT configuré.
 
-- Payload &lt; ~4 KiB recommandé (heap ESP32).
-- Pas de secrets, pas de transcripts complets.
-- `schema_version` incrémenté de façon incompatible uniquement.
+### Boucle firmware
 
-### Pairing (proposé)
-
-- `POST /api/companion/pair` (code court affiché sur PC / QR) → token device
-- Token stocké NVS ; révocation côté daemon
-
-Détail d’implémentation = PR Akasha ; ce dépôt consomme seulement le contrat.
+1. Chip **HF** (surface Texte) ou long-press menu → toggle NVS + `POST …/presence/config`
+2. Si actif : VAD local (RMS frames) → segment WAV borné → STT → message → TTS (flux existant)
+3. PTT manuel inchangé ; VAD suspendu pendant busy / sleep BL / PTT / TTS (anti-echo)
 
 ---
 
-## Phase 3 — Events
+## Phase 5 — Hands-free VAD
 
-Cible alignée sur le contrat events daemon (SSE / WebSocket).  
-En attendant : poll `GET /api/status` + tâche active toutes les 1–2 s pendant busy.
+---
+
+## Découverte LAN Companion (UDP)
+
+Le daemon écoute **UDP 3877** (tous interfaces). Le Companion envoie `AKASHA_DISCOVER` (broadcast).
+
+**Réponse JSON :**
+
+```json
+{ "service": "akasha", "port": 3876, "version": "0.10.0" }
+```
+
+Le Companion peut aussi sonder `GET /api/status` sur le LAN (fenêtre autour de son IP + gateway) si UDP ne répond pas.
+
+Endpoint custom (VPS) : saisie `host` ou `host:port` en NVS (`custom_endpoint=true`) — `secrets.h` ne réécrit plus host/port dans ce cas.
 
 ---
 
 ## Erreurs & UX
 
-| Situation | UI |
-|-----------|-----|
-| Timeout TCP | Bannière Offline + LED rouge |
-| HTTP 4xx/5xx | Message court + retry |
-| Tâche failed | Afficher extrait erreur |
-| Réponse trop longue | Truncate + « … » |
+| Situation | Avatar | Audio |
+|-----------|--------|-------|
+| Wi‑Fi / timeout | `offline` | — |
+| Voice status KO | `error` + toast | Bip |
+| STT vide / fail | `error` | Bip |
+| Tâche failed | `error` | TTS court « désolé… » si possible |
+| TTS fail mais texte ok | `idle` + bascule Texte | Bip ; afficher texte |
 
 ---
 
-## Hors contrat companion
+## Hors contrat
 
-- Upload gros fichiers / studio / terminal PTY
-- Invocation tools arbitraires
-- Accès vault / clés brutes
+- Studio / PTY / vault / tools arbitraires
+- Streams audio non bornés
+- Upload fichiers gros (&gt; budget flash/RAM)

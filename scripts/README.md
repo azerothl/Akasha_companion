@@ -1,64 +1,65 @@
-# Scripts (Phase 1 / 6)
+# Scripts — Akasha Companion (Phase 6)
 
-Operational helpers for Freenove FNK0104 bring-up and later product packaging. Implementations land in later phases; this folder documents the intended commands and env vars.
+## Prérequis
 
-## Prerequisites
+- [PlatformIO Core](https://platformio.org/install) (`pio` dans le PATH ou `~/.platformio/penv`)
+- Câble USB-C **data** branché sur le FNK0104B
+- Daemon Akasha sur le LAN avec `AKASHA_BIND=0.0.0.0` (voir [docs/user/daemon.md](../docs/user/daemon.md))
 
-- [PlatformIO](https://platformio.org/) (or ESP-IDF CLI) installed and on `PATH`
-- USB data cable to the FNK0104 board
-- Correct serial port (Windows: `COMx`; Linux/macOS: `/dev/ttyUSB*` or `/dev/ttyACM*`)
-- Firmware project under `firmware/` (see `firmware/README.md`)
+## `provision.ps1` / `provision.sh`
 
-## Flash firmware
+Crée ou met à jour `firmware/include/secrets.h` (Wi‑Fi, host daemon, pairing).
 
-**Status:** placeholder (Phase 1 bring-up, CMP-003+)
-
-```bash
-# From repo root, once firmware/ is an ESP-IDF or PlatformIO project:
-cd firmware
-pio run -t upload
-# Or: idf.py -p <PORT> flash
+```powershell
+.\scripts\provision.ps1
+.\scripts\provision.ps1 -Wifi "Maison" -WifiPass "…" -DaemonHost "192.168.1.168" -DaemonPort 3876
+.\scripts\provision.ps1 -PairSecret "dev-secret" -Force
 ```
 
-| Variable | Purpose |
-|----------|---------|
-| `COMPANION_PORT` | Serial port for upload/monitor |
-| `COMPANION_ENV` | Optional `sdkconfig` / board profile (e.g. `FNK0104B`) |
-
-Document the exact target and flags in `firmware/README.md` when the project exists.
-
-## Serial monitor
-
-**Status:** placeholder (Phase 1)
-
 ```bash
-cd firmware
-pio device monitor -b 115200
-# Or: idf.py -p <PORT> monitor
+./scripts/provision.sh
+./scripts/provision.sh --wifi Maison --wifi-pass '…' --host 192.168.1.168 --port 3876
 ```
 
-Use the same `COMPANION_PORT` as flash. Exit monitor with the usual Ctrl+] (PlatformIO) or Ctrl+] / configured escape (IDF).
+Rappel : si `AKASHA_COMPANION_PAIR_SECRET` est défini côté daemon, le même secret doit être dans `AKASHA_PAIR_SECRET`.
 
-## NVS provisioning (Wi-Fi + daemon)
+## `flash.ps1` / `flash.sh`
 
-**Status:** placeholder (Phase 1, CMP-006)
+Build + upload firmware (env produit : `fnk0104b`), puis moniteur série 115200.
 
-Secrets must **not** be committed. Store locally as `.env` or `nvs_secrets.csv` (both gitignored).
-
-Intended flow:
-
-1. Copy `nvs_secrets.example.csv` (to be added with firmware) to `nvs_secrets.csv`.
-2. Fill Wi-Fi SSID/password, daemon host (LAN IP or hostname), port (`3876`), and optional device token.
-3. Run a provisioning script (TBD), e.g.:
-
-```bash
-# python scripts/provision_nvs.py --port "$COMPANION_PORT" --csv nvs_secrets.csv
+```powershell
+.\scripts\flash.ps1
+.\scripts\flash.ps1 -Port COM5 -NoMonitor
+.\scripts\flash.ps1 -BuildOnly
+.\scripts\flash.ps1 -MonitorOnly -Port COM5
+.\scripts\flash.ps1 -Env fnk0104b
 ```
 
-NVS keys and partition layout will be defined in the firmware tree. Until then, configure via future `menuconfig` / captive portal / serial CLI as specified in `docs/COMPANION_SPEC.md` Phase 1.
+```bash
+./scripts/flash.sh
+./scripts/flash.sh --port /dev/ttyACM0 --no-monitor
+./scripts/flash.sh --build-only
+./scripts/flash.sh --monitor-only --port COM5
+```
 
-## Related docs
+Si l’upload échoue avec *Could not open COMx* : fermer tout moniteur série (autre terminal `pio device monitor`, IDE Serial Monitor), puis réessayer.
 
-- [COMPANION_SPEC.md](../docs/COMPANION_SPEC.md) — phases and requirements
-- [API_CONTRACT.md](../docs/API_CONTRACT.md) — daemon HTTP contract
-- [HARDWARE_FNK0104.md](../docs/HARDWARE_FNK0104.md) — board pins and SKUs
+Crée `secrets.h` depuis l’exemple s’il manque (sinon préférer `provision.*`).
+
+## Pare-feu Windows (Companion hors ligne / HTTP `-1`)
+
+Si le Companion a du Wi‑Fi (`w=1`) mais `d=0` et les logs montrent `GET /api/... -> -1`, Windows bloque souvent le port **3876** depuis le LAN.
+
+Exécuter **en administrateur** :
+
+```powershell
+.\scripts\open-lan-firewall.ps1
+```
+
+Puis vérifier que le daemon tourne avec `AKASHA_BIND=0.0.0.0`.
+
+
+| Env | Support |
+|-----|---------|
+| `fnk0104b` | **Produit** (validé) |
+| `fnk0104a` / `n` / `s` | Expérimental — voir [HARDWARE_FNK0104.md](../docs/HARDWARE_FNK0104.md) |

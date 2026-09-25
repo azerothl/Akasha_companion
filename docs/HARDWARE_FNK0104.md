@@ -11,100 +11,126 @@ D’après la [fiche modèles Freenove](https://docs.freenove.com/projects/fnk01
 
 | Modèle | Taille | Résolution | Driver LCD | Tactile | Rôle Akasha Companion |
 |--------|--------|------------|------------|---------|------------------------|
-| **FNK0104B** | 2.8″ | 240×320 | ILI9341 | Oui (capacitif) | **Cible MVP** |
-| FNK0104N | 3.5″ | 320×480 | ST77922 | Oui | Variante large |
-| FNK0104S | 4.0″ | 320×480 | ST7796 | Oui | Variante large |
-| FNK0104A | 2.8″ | 240×320 | ILI9341 | Non | Status + bouton uniquement |
+| **FNK0104B** | 2.8″ | 240×320 | ILI9341 | Oui (capacitif) | **Produit supporté** |
+| FNK0104A | 2.8″ | 240×320 | ILI9341 | Non | Expérimental (`env:fnk0104a`, pins ≈ B) |
+| FNK0104N | 3.5″ | 320×480 | ST77922 | Oui | Stub — unsupported until bring-up |
+| FNK0104S | 4.0″ | 320×480 | ST7796 | Oui | Stub — unsupported until bring-up |
 
-> Note GitHub Freenove : FNK0104S parfois listé ST7789 vs ST7796 dans les docs — **valider le driver sur le PCB / sketch Freenove** avant de figer les pins firmware.
+> Note : FNK0104S parfois listé ST7789 vs ST7796 — **valider sur PCB / sketch Freenove**.
+
+Build :
+
+```text
+pio run -e fnk0104b          # produit
+pio run -e fnk0104a          # expérimental
+pio run -e fnk0104n|fnk0104s # attendu: #error board header
+```
 
 ---
 
 ## MCU & mémoire
 
 - SoC : **ESP32-S3** (Wi‑Fi + BLE)
-- Flash / PSRAM : selon module soudé (souvent N8R8 ou équivalent) — **vérifier le marquage** et activer PSRAM correctement (souvent `qio_opi` sous Arduino-ESP32)
-- Alim : USB-C ; batterie Li-ion optionnelle **3.7–4.2 V** (connecteur MX1.25) — non fournie
-- LVGL + Wi‑Fi + JSON : **PSRAM fortement recommandé** ; sans PSRAM, rester sur UI minimale
+- Flash / PSRAM : selon module — **PSRAM obligatoire** pour avatar LVGL + buffers audio I2S
+- Alim : USB-C ; batterie Li-ion optionnelle 3.7–4.2 V (MX1.25)
+- Codec audio : **ES8311** (I2S + I2C) — entrée MEMS mic, sortie speaker
 
 ---
 
-## Périphériques utiles (tutoriels Freenove)
+## Audio (critique pour le produit)
 
-Les chapitres Touch Tutorial couvrent notamment :
+Le kit Freenove FNK0104 inclut typiquement ([store](https://store.freenove.com/products/fnk0104)) :
 
-| Chapitre / feature | Usage Companion |
-|--------------------|-----------------|
+| Élément | Emplacement | Rôle Companion |
+|---------|-------------|----------------|
+| **MEMS microphone** | Sur la carte (via ES8311) | Capture voix (mode principal) |
+| **Speaker** | Fourni dans le kit, connecteur **PH1.25** | Lecture TTS / feedback |
+| ES8311 | Sur la carte | Codec I2S full-duplex (selon config) |
+
+Référence tutoriel : [Chapter 7 Music](https://docs.freenove.com/projects/fnk0104/en/latest/fnk0104/codes/MAIN/7_Music.html) (playback + section **MEMS-MIC**).
+
+### Pins I2S (exemples Freenove — à figer par SKU)
+
+| Signal | **FNK0104B / A (2.8″)** | FNK0104N (3.5″) |
+|--------|-------------------------|-----------------|
+| I2S_MCK | **4** | 17 |
+| I2S_BCK | **5** | 18 |
+| I2S_WS | **7** | 21 |
+| I2S_DOUT | **8** | 15 |
+| I2S_DIN | **6** | 16 |
+| PA / AP_ENABLE | **1** | 1 |
+| I2C SDA / SCL | **16 / 15** | 38 / 39 |
+
+TFT FNK0104B (ILI9341 HSPI) : MOSI 11, SCLK 12, MISO 13, CS 10, DC **46**, BL **45**, RST tied.  
+Touch FT6336U : SDA 16, SCL 15, RST 18, INT 17. RGB WS2812 : GPIO **42**. Bouton : GPIO **0**.
+
+Voir `firmware/boards/fnk0104b.h`.
+
+### Contraintes audio firmware
+
+- Capture MVP : mono, **16 kHz**, 16-bit, clips **≤ 10–15 s** (upload STT).
+- Playback : wav/PCM renvoyé par `POST /api/voice/tts` (décoder data URL côté device).
+- **Pas** de moteur STT/TTS conversationnel on-device (CPU/RAM + qualité) — voir `COMPANION_SPEC.md` CMP-029.
+- Pendant playback : calculer RMS pour l’avatar (`CMP-030`) ; samples courts en flash pour UX (`CMP-031`).
+- Éviter full-duplex simultané mic+speaker en MVP si écho ; PTT coupe le TTS.
+- Brancher le speaker du kit avant les tests Phase 1.
+
+---
+
+## Périphériques (hors audio)
+
+| Feature | Usage Companion |
+|---------|-----------------|
 | Serial | Debug |
-| RGB LED | État (offline / idle / busy / error) |
-| Button (+ interrupt) | Wake, cancel, cycle d’écrans |
-| Battery voltage (ADC) | Jauge batterie (GPIO9 sur 2.8″ ; GPIO8 sur 3.5″ d’après exemples Freenove) |
-| SD MMC | Cache assets / logs |
-| Music / speaker (PH1.25) | Alertes / TTS court (phase 5) |
-| BLE | Provisioning Wi‑Fi (optionnel) |
-| Wi‑Fi web server | Référence ; Companion = **client HTTP**, pas serveur principal |
-| TFT / Touch / Drawing | Base display |
-| LVGL (+ picture, timer, RGB, music, multifunction) | Stack UI retenue |
+| RGB LED | idle / listening / busy / error |
+| Button (+ IRQ) | PTT alternatif, interrupt TTS, cycle surface |
+| Battery ADC | Jauge (GPIO9 sur 2.8″ ; GPIO8 sur 3.5″ — exemples Freenove) |
+| SD MMC | Cache wav / sprites avatar |
+| BLE | Provisioning (optionnel) |
+| TFT / Touch / LVGL | Avatar + Texte + Image |
 
-Tutoriels : [Touch](https://docs.freenove.com/projects/fnk0104/en/latest/fnk0104/codes/MAIN.html) · [NonTouch](https://docs.freenove.com/projects/fnk0104/en/latest/fnk0104/codes/MAIN_NonTouch.html) · [XiaoZhi](https://docs.freenove.com/projects/fnk0104/en/latest/fnk0104/codes/xiaozhi.html) · [Board Test](https://docs.freenove.com/projects/fnk0104/en/latest/fnk0104/codes/Board_Test.html)
-
-### Batterie (ADC)
-
-- Diviseur ×0.5 vers l’ADC (pleine charge 4.2 V → ~2.1 V mesurés)
-- Exemples Freenove : `BAT_ADC_PIN` **9** (FNK0104A/B) ou **8** (FNK0104N) — à confirmer sur schéma du SKU
-
-### MicroSD
-
-- Interface SDMMC (pins selon SKU ; exemples Freenove : CMD/CLK/D0–D3 distincts pour N vs AB)
-- Carte **non fournie** avec le kit
-
-### Speaker
-
-- Connecteur **PH1.25** — haut-parleur externe à prévoir dans la BOM phase 5
+Tutoriels : [Touch](https://docs.freenove.com/projects/fnk0104/en/latest/fnk0104/codes/MAIN.html) · [XiaoZhi](https://docs.freenove.com/projects/fnk0104/en/latest/fnk0104/codes/xiaozhi.html)
 
 ---
 
-## Sélection firmware (convention projet)
-
-Un seul firmware multi-SKU via **une** macro active :
+## Sélection firmware
 
 ```c
-#define BOARD_FNK0104B   // MVP
-// #define BOARD_FNK0104N
-// #define BOARD_FNK0104S
-// #define BOARD_FNK0104A
+#define BOARD_FNK0104B   // produit
+// #define BOARD_FNK0104A   // expérimental
+// #define BOARD_FNK0104N   // stub #error
+// #define BOARD_FNK0104S   // stub #error
 ```
 
-Chaque board file définit : résolution, driver TFT, présence touch, pins RGB / bouton / BAT / SD.
+Ou PlatformIO `-e fnk0104b` / `fnk0104a` / …  
+Chaque board file : résolution, driver TFT, touch, **pins I2S/ES8311**, RGB, bouton, BAT, SD.
 
 ---
 
-## Contraintes de design UI
+## Contraintes UI
 
-| SKU | Résolution | Orientation recommandée MVP | Densité UI |
-|-----|------------|------------------------------|------------|
-| B / A | 240×320 | Portrait | Gros boutons, clavier minimal ou phrases préfabriquées |
-| N / S | 320×480 | Portrait | Plus de texte visible, même flux d’écrans |
+| SKU | Résolution | Surface défaut | Secondaires |
+|-----|------------|----------------|-------------|
+| B / A | 240×320 | **Avatar** plein cadre | Texte / Image en overlay ou plein écran |
+| N / S | 320×480 | Avatar + chrome un peu plus riche | Idem |
 
-Écrans MVP (tous SKU) :
-
-1. **Home** — statut + heure  
-2. **Chat** — historique court (2–4 bulles)  
-3. **Actions** — grille 2×2 max  
+Surfaces : voir [UX_AVATAR_VOICE.md](UX_AVATAR_VOICE.md) et [COMPANION_SPEC.md](COMPANION_SPEC.md).
 
 ---
 
 ## Checklist bring-up (Phase 1)
 
-- [ ] Identifier le SKU (étiquette / taille écran)
-- [ ] Flash sketch Freenove Board Test ou LVGL hello
-- [ ] Confirmer PSRAM détectée au boot
-- [ ] Wi‑Fi joint au LAN du daemon
-- [ ] `curl` / client board → `GET http://<daemon>:3876/api/status`
-- [ ] Documenter pins réellement utilisées dans `firmware/boards/`
+- [ ] Identifier le SKU
+- [x] Brancher le **speaker** PH1.25 du kit
+- [x] Hello display + touch
+- [ ] PSRAM OK
+- [x] ES8311 init + tonalité speaker (+ loopback)
+- [ ] Enregistrement mic court → playback local (loopback)
+- [ ] Wi‑Fi + `GET /api/status` + `GET /api/voice/status`
+- [ ] Documenter pins dans `firmware/boards/`
 
 ---
 
-## Hors board (accessoires)
+## Accessoires
 
 Voir [../hardware/BOM.md](../hardware/BOM.md).
