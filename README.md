@@ -1,42 +1,59 @@
 # Akasha Companion
 
-Client tactile **ESP32-S3** pour le daemon [Akasha](https://github.com/azerothl/Akasha) — statut, actions rapides et chat court sur écran, sans LLM embarqué.
+Compagnon **vocal** ESP32-S3 pour le daemon [Akasha](https://github.com/azerothl/Akasha) : on parle à Akasha ; l’écran montre un **avatar** vivant. Texte et images sont des surfaces secondaires.
 
-**Hardware cible :** [Freenove ESP32-S3 Display (FNK0104)](https://docs.freenove.com/projects/fnk0104/en/latest/)  
-**Variante recommandée MVP :** **FNK0104B** (2.8″, 240×320, ILI9341, tactile)
+**Hardware :** [Freenove ESP32-S3 Display (FNK0104)](https://docs.freenove.com/projects/fnk0104/en/latest/)  
+**Produit supporté :** **FNK0104B** — tactile, **micro MEMS**, **haut-parleur** kit (codec ES8311).
 
 ```
-┌─────────────────────┐        LAN / Wi‑Fi         ┌──────────────────┐
-│  FNK0104 + LVGL     │ ──── HTTP (+ SSE later) ──►│  akasha-daemon   │
-│  thin client        │                            │  :3876           │
-└─────────────────────┘                            └──────────────────┘
+┌──────────────────────────┐     LAN      ┌─────────────────────────────┐
+│ Avatar TFT_eSPI + I2S    │◄────────────►│ akasha-daemon :3876         │
+│ mic → STT → message → TTS│   HTTP       │ /api/voice/*  /api/companion│
+└──────────────────────────┘              └─────────────────────────────┘
 ```
 
-## Docs
+## Guide utilisateur
 
 | Document | Contenu |
 |----------|---------|
-| [docs/COMPANION_SPEC.md](docs/COMPANION_SPEC.md) | Spéc produit, phases, exigences `CMP-*` |
-| [docs/HARDWARE_FNK0104.md](docs/HARDWARE_FNK0104.md) | Variantes Freenove, I/O, contraintes |
-| [docs/API_CONTRACT.md](docs/API_CONTRACT.md) | Contrat HTTP avec le daemon |
-| [hardware/BOM.md](hardware/BOM.md) | Nomenclature d’achat |
-| [AGENTS.md](AGENTS.md) | Conventions pour agents / contributeurs |
+| [docs/user/getting-started.md](docs/user/getting-started.md) | Flash, secrets, premier PTT |
+| [docs/user/usage.md](docs/user/usage.md) | Gestures, HF/VAD, dépannage |
+| [docs/user/daemon.md](docs/user/daemon.md) | `AKASHA_BIND`, voix, presence |
+
+Flash rapide :
+
+```powershell
+.\scripts\provision.ps1 -Wifi "…" -WifiPass "…" -DaemonHost "192.168.1.168"
+.\scripts\flash.ps1 -Port COM5 -NoMonitor
+```
+
+Voir [scripts/README.md](scripts/README.md).
+
+## Specs techniques
+
+| Document | Contenu |
+|----------|---------|
+| [docs/COMPANION_SPEC.md](docs/COMPANION_SPEC.md) | Vision, phases, `CMP-*` |
+| [docs/UX_AVATAR_VOICE.md](docs/UX_AVATAR_VOICE.md) | Avatar, gestures, surfaces |
+| [docs/HARDWARE_FNK0104.md](docs/HARDWARE_FNK0104.md) | Board, ES8311, multi-SKU |
+| [docs/API_CONTRACT.md](docs/API_CONTRACT.md) | Allowlist HTTP |
+| [hardware/BOM.md](hardware/BOM.md) | Nomenclature |
+| [AGENTS.md](AGENTS.md) | Conventions agents |
 
 ## Statut
 
-Scaffold + spécifications. Firmware à venir (`firmware/`).
+| Phase | Contenu | État |
+|-------|---------|------|
+| 1 | Display, touch, Wi‑Fi, ES8311 | Validé FNK0104B |
+| 2 | Avatar + boucle vocale PTT | Firmware |
+| 3 | Surfaces Texte / Image | Firmware |
+| 4 | Snapshot, pairing, sleep BL | Firmware + daemon |
+| 5 | Hands-free VAD + policy | Firmware + daemon |
+| 6 | Flash tooling, doc user, multi-SKU | **Produit** |
 
-## Développement (prévu)
+Daemon : `AKASHA_BIND=0.0.0.0` + STT/TTS. Variantes A/N/S = expérimentales ([HARDWARE](docs/HARDWARE_FNK0104.md)).
 
-```bash
-# Après Phase 1 — PlatformIO / ESP-IDF
-cd firmware
-pio run -t upload
-pio device monitor
-```
+## Lien monorepo
 
-Prérequis runtime : daemon Akasha joignable sur le LAN (`GET http://<host>:3876/api/status`).
-
-## Lien avec le monorepo
-
-Les changements daemon éventuels (`/api/companion/*`) vivent dans **Akasha** (`crates/akasha-daemon`). Ce dépôt reste le firmware + UI embarquée + specs matériel.
+Routes `/api/companion/*` → **Akasha** (`crates/akasha-daemon`).  
+STT/TTS : `/api/voice/stt`, `/api/voice/tts`.

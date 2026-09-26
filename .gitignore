@@ -11,6 +11,8 @@ managed_components/
 secrets/
 nvs_secrets.*
 !nvs_secrets.example.*
+firmware/include/secrets.h
+.tmp_freenove/
 
 # Freenove vendor bundle (CC BY-NC-SA — do not commit)
 vendor/freenove/

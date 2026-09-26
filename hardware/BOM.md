@@ -4,38 +4,39 @@
 
 | Item | Réf. / notes | Qté |
 |------|----------------|-----|
-| Freenove ESP32-S3 Display **FNK0104B** | 2.8″ tactile, ILI9341 — [docs](https://docs.freenove.com/projects/fnk0104/en/latest/) · [store Freenove](http://store.freenove.com) | 1 |
-| Câble USB-C (data) | Flash + alim | 1 |
+| Freenove ESP32-S3 Display **FNK0104B** | 2.8″ tactile, ILI9341, **MEMS mic** onboard (ES8311) — [docs](https://docs.freenove.com/projects/fnk0104/en/latest/) · [store](https://store.freenove.com/products/fnk0104) | 1 |
+| **Speaker** (inclus kit) | Connecteur **PH1.25** — à brancher pour TTS | 1 |
+| Câble USB-C (data) | Flash + alim (souvent inclus) | 1 |
+
+Contenu kit typique Freenove : module écran, speaker, câble USB-C, câbles de liaison — vérifier la boîte.
 
 ## Recommandé
 
 | Item | Notes | Qté |
 |------|--------|-----|
-| Support / coque desk | Impression 3D ou stand générique 2.8″ | 1 |
-| MicroSD (FAT32) | Cache assets — optionnel Phase 2+ | 1 |
+| Support / coque desk | Impression 3D ; laisse le mic et le speaker dégagés | 1 |
+| MicroSD FAT32 | Cache clips / sprites avatar | 1 |
 
-## Variantes écran (alternative à B)
+## Variantes
 
-| Item | Quand l’acheter |
-|------|-----------------|
-| FNK0104N (3.5″) | UI plus lisible, même firmware multi-SKU |
-| FNK0104S (4.0″) | Desk / mur, plus grand |
-| FNK0104A (2.8″ non-tactile) | Proto status-only |
+| Item | Statut Companion |
+|------|------------------|
+| **FNK0104B** | **Produit** — validé |
+| FNK0104A | Expérimental (`pio run -e fnk0104a`) — sans tactile |
+| FNK0104N / S | Stubs board — non flashables jusqu’à bring-up pins |
 
-## Phase 5 (audio)
+## Optionnel
 
-| Item | Notes | Qté |
-|------|--------|-----|
-| Speaker compatible **PH1.25** | Voir préface Freenove (impedance typique kits ~8 Ω) | 1 |
-| Batterie Li-ion 3.7 V + connecteur **MX1.25** | Optionnel ; USB préféré pour la sécurité | 1 |
+| Item | Notes |
+|------|--------|
+| Batterie Li-ion 3.7 V + MX1.25 | USB préféré pour la sécurité |
 
-## Non inclus / à ne pas oublier
+## Non inclus
 
-- Le kit Freenove **ne fournit pas** batterie ni SD ni speaker (selon docs).
-- Daemon Akasha sur un PC/NAS du **même LAN** (port 3876).
+- Batterie et SD (selon kit)
+- Daemon Akasha + services STT/TTS (`voice_router.yaml`) sur le LAN
 
 ## Liens
 
-- Tutoriels : https://docs.freenove.com/projects/fnk0104/en/latest/
-- Exemples / zip : https://github.com/Freenove/Freenove_ESP32_S3_Display
-- Support fabricant : support@freenove.com
+- Audio Freenove : https://docs.freenove.com/projects/fnk0104/en/latest/fnk0104/codes/MAIN/7_Music.html
+- Support : support@freenove.com
